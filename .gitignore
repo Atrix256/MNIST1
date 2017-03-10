@@ -1,0 +1,12 @@
+# other things we want to ignore
+*.sdf
+*.suo
+*.vcxproj.user
+*.ipch
+*.opensdf
+*.ilk
+*.pdb
+**/Debug/*.*
+**/Release/*.*
+*.vc.db
+*.vc.opendb
