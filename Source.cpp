@@ -50,7 +50,7 @@ public:
 		m_imageCount = training ? 60000 : 10000;
 
 		// read labels
-		const char* labelsFileName = training ? "mnist/train-labels.idx1-ubyte" : "mnist/t10k-labels.idx1-ubyte";
+		const char* labelsFileName = training ? "train-labels.idx1-ubyte" : "t10k-labels.idx1-ubyte";
 		FILE* file = fopen(labelsFileName,"rb");
 		if (!file)
 		{
@@ -65,7 +65,7 @@ public:
 		fclose(file);
 
 		// read images
-		const char* imagesFileName = training ? "mnist/train-images.idx3-ubyte" : "mnist/t10k-images.idx3-ubyte";
+		const char* imagesFileName = training ? "train-images.idx3-ubyte" : "t10k-images.idx3-ubyte";
 		file = fopen(imagesFileName, "rb");
 		if (!file)
 		{
@@ -327,16 +327,12 @@ int main (int argc, char** argv)
 /*
 
 TODO:
-? should we figure out a way to let people give their own input?
+? should we figure out a way to let people give their own input to test network?
  * maybe make an html5 web app to draw numbers and let it guess what it is?
 ? should we calculate derivatives of input and make static that looks like a number or make a number that doesn't look like one to the machine?
-* make params be constants instead of defines
-* profile and optimize a little?
-? should we convert the mnist pixel data to floats on load?
+* profile and optimize a little.
 * show how long it took to run the process.
 * show error rate at end. maybe an option to show it for each epoch?
-* move mnist data out of subfolder.
-* zip up mnist data and put link to it from blog.
 
 Blog Notes:
 * porting network.py from this page: http://neuralnetworksanddeeplearning.com/chap1.html
@@ -346,6 +342,7 @@ Blog Notes:
 * not multithreaded / SIMD etc.  meant to be readable and usable for experimentation.
 * link to this in recipe: http://image-net.org/challenges/posters/JKU_EN_RGB_Schwarz_poster.pdf
  * exponential linear unit.
+* put mnist.zip file up on blog and link to it
 
 Network Description:
 * neuron layers: [784, 30, 10]
@@ -354,6 +351,7 @@ Network Description:
 * learning rate of 3.0  (!!)
 ? not sure if this is the final network description of network.py or not
  * it isn't. look at the other params tried. maybe mention them in the post?
+ * 100 hidden neurons could do better, but not reliably. was more wild results.
 
 NEXT PROJECTS:
 * port network2.py and make a blog post. from http://neuralnetworksanddeeplearning.com/chap3.html
