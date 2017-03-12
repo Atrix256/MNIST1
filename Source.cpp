@@ -214,12 +214,12 @@ public:
 				const float* pixels = trainingData.GetImage(m_trainingOrder[trainingIndex], imageLabel);
 
 				// run the forward pass of the network
-				uint8 labelDetected = ForwardPass(pixels);
-
-				// run the backward pass to get derivatives
 				float error = 0.0f;
-				BackwardPass(pixels, imageLabel, error);
+				uint8 labelDetected = ForwardPass(pixels, imageLabel, error);
 				avgError += error;
+
+				// run the backward pass to get derivatives of the cost function
+				BackwardPass(pixels, imageLabel);
 
 				// add the current derivatives into the minibatch derivative arrays so we can average them at the end of the minibatch via division.
 				for (size_t i = 0; i < m_hiddenLayerBiasesDeltaCost.size(); ++i)
@@ -270,10 +270,8 @@ public:
 		avgError /= float(trainingData.NumImages());
 	}
 
-private:
-
 	// This function evaluates the network for the given input pixels and returns the label it thinks it is from 0-9
-	uint8 ForwardPass (const float* pixels)
+	uint8 ForwardPass (const float* pixels, uint8 correctLabel, float& error)
 	{
 		// first do hidden layer
 		for (size_t neuronIndex = 0; neuronIndex < HIDDEN_NEURONS; ++neuronIndex)
@@ -297,6 +295,19 @@ private:
 			m_outputLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
 		}
 
+		// calculate error.
+		// this is the magnitude of the vector that is Desired - Actual
+		{
+			error = 0.0f;
+			for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
+			{
+				float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
+				float diff = (desiredOutput - m_outputLayerOutputs[neuronIndex]);
+				error += diff * diff;
+			}
+			error = std::sqrt(error);
+		}
+
 		// find the maximum value of the output layer and return that index as the label
 		float maxOutput = m_outputLayerOutputs[0];
 		uint8 maxLabel = 0;
@@ -311,24 +322,13 @@ private:
 		return maxLabel;
 	}
 
+private:
+
 	// this function uses the neuron output values from the forward pass to backpropagate the error
 	// of the network to calculate the gradient needed for training.  It figures out what the error
 	// is by comparing the label it came up with to the label it should have come up with (correctLabel).
-	void BackwardPass (const float* pixels, uint8 correctLabel, float& error)
+	void BackwardPass (const float* pixels, uint8 correctLabel)
 	{
-		// calculate error.
-		// this is the magnitude of the vector that is Desired - Actual
-		{
-			error = 0.0f;
-			for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
-			{
-				float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
-				float diff = (desiredOutput - m_outputLayerOutputs[neuronIndex]);
-				error += diff * diff;
-			}
-			error = std::sqrt(error);
-		}
-
 		// since we are going backwards, do the output layer first
 		for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
 		{
@@ -444,7 +444,17 @@ int main (int argc, char** argv)
 	}
 
 	// TODO: check error of test data
+	for (size_t i = 0, c = g_testData.NumImages(); i < c; ++i)
+	{
+		uint8 label;
+		const float* pixels = g_testData.GetImage(i, label);
+		float error = 0.0f;
+		uint8 detectedLabel = neuralNetwork.ForwardPass(pixels, label, error);
+		printf("%zu: fed it a %u, it saw a %u.\n", i, label, detectedLabel);
 
+		if (i > 9)
+			break;
+	}
 
 	// TODO: put this code somewhere and comment it out or something to let people verify that the data is loaded correctly
 	uint8 label;
