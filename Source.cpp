@@ -177,6 +177,23 @@ public:
 
 	void Train (const CMNISTData& trainingData, size_t miniBatchSize, float learningRate, float& avgError)
 	{
+		/*
+		// TODO: temp!
+		{
+			float error = 0.0f;
+			float input[2] = { 0.05f, 0.1f };
+			uint8 imageLabel = 0;
+			uint8 labelDetected = ForwardPass(input, imageLabel, error);
+			avgError += error;
+
+			// run the backward pass to get derivatives of the cost function
+			BackwardPass(input, imageLabel);
+
+			int ijkl = 0;
+		}
+		*/
+
+
 		// shuffle the order of the training data for our mini batches
 		if (m_trainingOrder.size() != trainingData.NumImages())
 		{
@@ -252,11 +269,6 @@ public:
 			// apply training to biases and weights
 			float miniBatchLearningRate = learningRate / float(miniBatchIndex);
 
-			// TODO: temp. I think derivatives might have wrong sign?
-			// TODO: nope, that wasn't it!  Error is much worse when doing that!
-			//miniBatchLearningRate *= -1.0f;
-
-
 			for (size_t i = 0; i < m_hiddenLayerBiases.size(); ++i)
 				m_hiddenLayerBiases[i] -= m_miniBatchHiddenLayerBiasesDeltaCost[i] * miniBatchLearningRate;
 			for (size_t i = 0; i < m_outputLayerBiases.size(); ++i)
@@ -279,9 +291,12 @@ public:
 			float Z = m_hiddenLayerBiases[neuronIndex];
 
 			for (size_t inputIndex = 0; inputIndex < INPUTS; ++inputIndex)
-				Z += pixels[inputIndex] * m_hiddenLayerWeights[neuronIndex*INPUTS + inputIndex];
+				Z += pixels[inputIndex] * m_hiddenLayerWeights[HiddenLayerWeightIndex(inputIndex, neuronIndex)];
 
 			m_hiddenLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
+
+			// TODO: temp
+			int ijkl = 0;
 		}
 
 		// then do output layer
@@ -290,9 +305,12 @@ public:
 			float Z = m_outputLayerBiases[neuronIndex];
 
 			for (size_t inputIndex = 0; inputIndex < HIDDEN_NEURONS; ++inputIndex)
-				Z += m_hiddenLayerOutputs[inputIndex] * m_outputLayerWeights[neuronIndex*HIDDEN_NEURONS + inputIndex];
+				Z += m_hiddenLayerOutputs[inputIndex] * m_outputLayerWeights[OutputLayerWeightIndex(inputIndex, neuronIndex)];
 
 			m_outputLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
+
+			// TODO: temp
+			int ijkl = 0;
 		}
 
 		// calculate error.
@@ -301,7 +319,9 @@ public:
 			error = 0.0f;
 			for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
 			{
+				// TODO: temp!
 				float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
+				//float desiredOutput = (neuronIndex == 0) ? 0.01f : 0.99f;
 				float diff = (desiredOutput - m_outputLayerOutputs[neuronIndex]);
 				error += diff * diff;
 			}
@@ -311,18 +331,29 @@ public:
 		// find the maximum value of the output layer and return that index as the label
 		float maxOutput = m_outputLayerOutputs[0];
 		uint8 maxLabel = 0;
-		for (uint8 neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
+		for (uint8 neuronIndex = 1; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
 		{
-			if (m_hiddenLayerOutputs[neuronIndex] > maxOutput)
+			if (m_outputLayerOutputs[neuronIndex] > maxOutput)
 			{
-				maxOutput = m_hiddenLayerOutputs[neuronIndex];
+				maxOutput = m_outputLayerOutputs[neuronIndex];
 				maxLabel = neuronIndex;
 			}
 		}
 		return maxLabel;
 	}
 
-private:
+// TODO: temp!
+//private:
+
+	static size_t HiddenLayerWeightIndex (size_t inputIndex, size_t hiddenLayerNeuronIndex)
+	{
+		return hiddenLayerNeuronIndex * INPUTS + inputIndex;
+	}
+
+	static size_t OutputLayerWeightIndex (size_t hiddenLayerNeuronIndex, size_t outputLayerNeuronIndex)
+	{
+		return outputLayerNeuronIndex * HIDDEN_NEURONS + hiddenLayerNeuronIndex;
+	}
 
 	// this function uses the neuron output values from the forward pass to backpropagate the error
 	// of the network to calculate the gradient needed for training.  It figures out what the error
@@ -340,7 +371,9 @@ private:
 			// deltaCost/deltaO = O - desiredOutput
 			// deltaO/deltaZ = O * (1 - O)
 			//
+			// TODO: temp!
 			float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
+			//float desiredOutput = (neuronIndex == 0) ? 0.01f : 0.99f;
 
 			float deltaCost_deltaO = m_outputLayerOutputs[neuronIndex] - desiredOutput;
 			float deltaO_deltaZ = m_outputLayerOutputs[neuronIndex] * (1.0f - m_outputLayerOutputs[neuronIndex]);
@@ -353,7 +386,7 @@ private:
 			// deltaCost/deltaWeight = deltaCost/deltaBias * input
 			//
 			for (size_t inputIndex = 0; inputIndex < HIDDEN_NEURONS; ++inputIndex)
-				m_outputLayerWeightsDeltaCost[neuronIndex*HIDDEN_NEURONS + inputIndex] = m_outputLayerBiasesDeltaCost[neuronIndex] * m_hiddenLayerOutputs[inputIndex];
+				m_outputLayerWeightsDeltaCost[OutputLayerWeightIndex(inputIndex, neuronIndex)] = m_outputLayerBiasesDeltaCost[neuronIndex] * m_hiddenLayerOutputs[inputIndex];
 		}
 
 		// then do the hidden layer
@@ -362,16 +395,21 @@ private:
 			// calculate deltaCost/deltaBias for each hidden neuron.
 			// This is also the error for the neuron, and is the same value as deltaCost/deltaZ.
 			//
-			// deltaCost/deltaZ =
+			// deltaCost/deltaO =
 			//   Sum for each output of this neuron:
 			//     deltaCost/deltaDestinationZ * deltaDestinationZ/deltaSourceO
 			//
 			// deltaCost/deltaDestinationZ is already calculated and lives in m_outputLayerBiasesDeltaCost[destinationNeuronIndex].
 			// deltaTargetZ/deltaSourceO is the value of the weight connecting the source and target neuron.
 			//
-			m_hiddenLayerBiasesDeltaCost[neuronIndex] = 0.0f;
+			// deltaCost/deltaZ = deltaCost/deltaO * deltaO/deltaZ
+			// deltaO/deltaZ = O * (1 - O)
+			//
+			float deltaCost_deltaO = 0.0f;
 			for (size_t destinationNeuronIndex = 0; destinationNeuronIndex < OUTPUT_NEURONS; ++destinationNeuronIndex)
-				m_hiddenLayerBiasesDeltaCost[neuronIndex] += m_outputLayerBiasesDeltaCost[destinationNeuronIndex] * m_outputLayerWeights[destinationNeuronIndex*HIDDEN_NEURONS + neuronIndex];
+				deltaCost_deltaO += m_outputLayerBiasesDeltaCost[destinationNeuronIndex] * m_outputLayerWeights[OutputLayerWeightIndex(neuronIndex, destinationNeuronIndex)];
+			float deltaO_deltaZ = m_hiddenLayerOutputs[neuronIndex] * (1.0f - m_hiddenLayerOutputs[neuronIndex]);
+			m_hiddenLayerBiasesDeltaCost[neuronIndex] = deltaCost_deltaO * deltaO_deltaZ;
 
 			// calculate deltaCost/deltaWeight for each weight going into the neuron
 			//
@@ -379,11 +417,12 @@ private:
 			// deltaCost/deltaWeight = deltaCost/deltaBias * input
 			//
 			for (size_t inputIndex = 0; inputIndex < INPUTS; ++inputIndex)
-				m_hiddenLayerWeightsDeltaCost[neuronIndex*HIDDEN_NEURONS + inputIndex] = m_hiddenLayerBiasesDeltaCost[neuronIndex] * pixels[inputIndex];
+				m_hiddenLayerWeightsDeltaCost[HiddenLayerWeightIndex(inputIndex, neuronIndex)] = m_hiddenLayerBiasesDeltaCost[neuronIndex] * pixels[inputIndex];
 		}
 	}
 
-private:
+// TODO: temp!
+//private:
 
 	// biases and weights
 	std::array<float, HIDDEN_NEURONS>					m_hiddenLayerBiases;
@@ -418,11 +457,55 @@ private:
 //                                   DRIVER PROGRAM
 // ============================================================================================
 
+// training and test data
 CMNISTData g_trainingData;
 CMNISTData g_testData;
 
+// neural network
+CNeuralNetwork<c_numInputNeurons, c_numHiddenNeurons, c_numOutputNeurons> g_neuralNetwork;
+
+float GetDataAccuracy (const CMNISTData& data)
+{
+	size_t correctItems = 0;
+	for (size_t i = 0, c = data.NumImages(); i < c; ++i)
+	{
+		uint8 label;
+		const float* pixels = data.GetImage(i, label);
+		float error = 0.0f;
+		uint8 detectedLabel = g_neuralNetwork.ForwardPass(pixels, label, error);
+
+		if (detectedLabel == label)
+			++correctItems;
+	}
+	return float(correctItems) / float(data.NumImages());
+}
+
 int main (int argc, char** argv)
 {
+	/*
+	// TODO: temp!
+	CNeuralNetwork<2, 2, 2> nn;
+	nn.m_hiddenLayerWeights[0] = 0.15f;
+	nn.m_hiddenLayerWeights[1] = 0.2f;
+	nn.m_hiddenLayerWeights[2] = 0.25f;
+	nn.m_hiddenLayerWeights[3] = 0.3f;
+
+	nn.m_hiddenLayerBiases[0] = 0.35f;
+	nn.m_hiddenLayerBiases[1] = 0.35f;
+
+	nn.m_outputLayerWeights[0] = 0.4f;
+	nn.m_outputLayerWeights[1] = 0.45f;
+	nn.m_outputLayerWeights[2] = 0.5f;
+	nn.m_outputLayerWeights[3] = 0.55f;
+	
+	nn.m_outputLayerBiases[0] = 0.6f;
+	nn.m_outputLayerBiases[1] = 0.6f;
+
+	float avgErrorZ = 0.0f;
+	nn.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgErrorZ);
+	*/
+
+
 
 	// load the MNIST data if we can
 	if (!g_trainingData.Load(true) || !g_testData.Load(false))
@@ -431,30 +514,19 @@ int main (int argc, char** argv)
 		return 1;
 	}
 
-	// create the network
-	CNeuralNetwork<c_numInputNeurons, c_numHiddenNeurons, c_numOutputNeurons> neuralNetwork;
-
 	// train the network
 	for (size_t epoch = 0; epoch < c_trainingEpochs; ++epoch)
 	{
 		printf("epoch %zu / %zu\n", epoch+1, c_trainingEpochs);
 		float avgError = 0.0f;
-		neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgError);
-		printf("  avgError = %f\n", avgError);
+		printf("  Training Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_trainingData));
+		printf("  Test Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_testData));
+		g_neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgError);
 	}
+	printf("\nFinal Training Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_trainingData));
+	printf("Final Test Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_testData));
 
 	// TODO: check error of test data
-	for (size_t i = 0, c = g_testData.NumImages(); i < c; ++i)
-	{
-		uint8 label;
-		const float* pixels = g_testData.GetImage(i, label);
-		float error = 0.0f;
-		uint8 detectedLabel = neuralNetwork.ForwardPass(pixels, label, error);
-		printf("%zu: fed it a %u, it saw a %u.\n", i, label, detectedLabel);
-
-		if (i > 9)
-			break;
-	}
 
 	// TODO: put this code somewhere and comment it out or something to let people verify that the data is loaded correctly
 	uint8 label;
@@ -482,10 +554,15 @@ int main (int argc, char** argv)
 TODO:
 ? should we figure out a way to let people give their own input to test network?
  * maybe make an html5 web app to draw numbers and let it guess what it is?
+ * should sample the bounding box of the number
+* forward pass may not need to calculate error, check into it.
+ * same with Train()!
 ? should we calculate derivatives of input and make static that looks like a number or make a number that doesn't look like one to the machine?
 * profile and optimize a little.
 * show how long it took to run the process.
 * show error rate at end. maybe an option to show it for each epoch?
+* CSV of error at end of each epoch to show learning rate. Maybe also show error of training data?
+* write out json file of weights/biases for use by html demo!
 
 Blog Notes:
 * porting network.py from this page: http://neuralnetworksanddeeplearning.com/chap1.html
