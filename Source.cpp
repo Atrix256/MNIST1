@@ -16,7 +16,7 @@ const size_t c_numInputNeurons = 784;
 const size_t c_numHiddenNeurons = 30;
 const size_t c_numOutputNeurons = 10;
 
-const size_t c_trainingEpochs = 3;  //TODO: 30
+const size_t c_trainingEpochs = 30;  //TODO: 30
 const size_t c_miniBatchSize = 10;
 const float c_learningRate = 3.0f;
 
@@ -175,7 +175,7 @@ public:
 			f = dist(e2);
 	}
 
-	void Train (const CMNISTData& trainingData, size_t miniBatchSize, float learningRate)
+	void Train (const CMNISTData& trainingData, size_t miniBatchSize, float learningRate, float& avgError)
 	{
 		// shuffle the order of the training data for our mini batches
 		if (m_trainingOrder.size() != trainingData.NumImages())
@@ -192,34 +192,87 @@ public:
 		static std::mt19937 e2(rd());
 		std::shuffle(m_trainingOrder.begin(), m_trainingOrder.end(), e2);
 
+		// initialize average error to 0
+		avgError = 0.0f;
+
+		// process all minibatches until we are out of training examples
 		size_t trainingIndex = 0;
 		while (trainingIndex < trainingData.NumImages())
 		{
+			// Clear out minibatch derivatives.  We sum them up and then divide at the end of the minimatch
+			std::fill(m_miniBatchHiddenLayerBiasesDeltaCost.begin(), m_miniBatchHiddenLayerBiasesDeltaCost.end(), 0.0f);
+			std::fill(m_miniBatchOutputLayerBiasesDeltaCost.begin(), m_miniBatchOutputLayerBiasesDeltaCost.end(), 0.0f);
+			std::fill(m_miniBatchHiddenLayerWeightsDeltaCost.begin(), m_miniBatchHiddenLayerWeightsDeltaCost.end(), 0.0f);
+			std::fill(m_miniBatchOutputLayerWeightsDeltaCost.begin(), m_miniBatchOutputLayerWeightsDeltaCost.end(), 0.0f);
+
+			// process the minibatch
 			size_t miniBatchIndex = 0;
 			while (miniBatchIndex < miniBatchSize && trainingIndex < trainingData.NumImages())
 			{
 				// get the training item
-				uint8 label;
-				const float* pixels = trainingData.GetImage(m_trainingOrder[trainingIndex], label);
+				uint8 imageLabel = 0;
+				const float* pixels = trainingData.GetImage(m_trainingOrder[trainingIndex], imageLabel);
 
 				// run the forward pass of the network
-				label = ForwardPass(pixels);
+				uint8 labelDetected = ForwardPass(pixels);
 
-				// TODO: calculate derivatives for trainingData image m_trainingOrder[trainingIndex]
-				// TODO: add info to average derivatives
+				// run the backward pass to get derivatives
+				float error = 0.0f;
+				BackwardPass(pixels, imageLabel, error);
+				avgError += error;
 
+				// add the current derivatives into the minibatch derivative arrays so we can average them at the end of the minibatch via division.
+				for (size_t i = 0; i < m_hiddenLayerBiasesDeltaCost.size(); ++i)
+					m_miniBatchHiddenLayerBiasesDeltaCost[i] += m_hiddenLayerBiasesDeltaCost[i];
+				for (size_t i = 0; i < m_outputLayerBiasesDeltaCost.size(); ++i)
+					m_miniBatchOutputLayerBiasesDeltaCost[i] += m_outputLayerBiasesDeltaCost[i];
+				for (size_t i = 0; i < m_hiddenLayerWeightsDeltaCost.size(); ++i)
+					m_miniBatchHiddenLayerWeightsDeltaCost[i] += m_hiddenLayerWeightsDeltaCost[i];
+				for (size_t i = 0; i < m_outputLayerWeightsDeltaCost.size(); ++i)
+					m_miniBatchOutputLayerWeightsDeltaCost[i] += m_outputLayerWeightsDeltaCost[i];
+
+				// note that we've added another item to the minibatch, and that we've consumed another training example
 				++trainingIndex;
 				++miniBatchIndex;
 			}
 
-			// TODO: apply training, using learningRate!
+			// divide minibatch derivatives by how many items were in the minibatch, to get the average of the derivatives.
+			// instead of the commented code below, we'll do it implicitly by dividing the learning rate by miniBatchIndex.
+			/*
+			for (float& f : m_miniBatchHiddenLayerBiasesDeltaCost)
+				f /= float(miniBatchIndex);
+			for (float& f : m_miniBatchOutputLayerBiasesDeltaCost)
+				f /= float(miniBatchIndex);
+			for (float& f : m_miniBatchHiddenLayerWeightsDeltaCost)
+				f /= float(miniBatchIndex);
+			for (float& f : m_miniBatchOutputLayerWeightsDeltaCost)
+				f /= float(miniBatchIndex);
+			*/
+
+			// apply training to biases and weights
+			float miniBatchLearningRate = learningRate / float(miniBatchIndex);
+
+			// TODO: temp. I think derivatives might have wrong sign?
+			// TODO: nope, that wasn't it!  Error is much worse when doing that!
+			//miniBatchLearningRate *= -1.0f;
+
+
+			for (size_t i = 0; i < m_hiddenLayerBiases.size(); ++i)
+				m_hiddenLayerBiases[i] -= m_miniBatchHiddenLayerBiasesDeltaCost[i] * miniBatchLearningRate;
+			for (size_t i = 0; i < m_outputLayerBiases.size(); ++i)
+				m_outputLayerBiases[i] -= m_miniBatchOutputLayerBiasesDeltaCost[i] * miniBatchLearningRate;
+			for (size_t i = 0; i < m_hiddenLayerWeights.size(); ++i)
+				m_hiddenLayerWeights[i] -= m_miniBatchHiddenLayerWeightsDeltaCost[i] * miniBatchLearningRate;
+			for (size_t i = 0; i < m_outputLayerWeights.size(); ++i)
+				m_outputLayerWeights[i] -= m_miniBatchOutputLayerWeightsDeltaCost[i] * miniBatchLearningRate;
 		}
 
-		int ijkl = 0;
+		avgError /= float(trainingData.NumImages());
 	}
 
 private:
 
+	// This function evaluates the network for the given input pixels and returns the label it thinks it is from 0-9
 	uint8 ForwardPass (const float* pixels)
 	{
 		// first do hidden layer
@@ -227,7 +280,7 @@ private:
 		{
 			float Z = m_hiddenLayerBiases[neuronIndex];
 
-			for (size_t inputIndex = 0; inputIndex < 28 * 28; ++inputIndex)
+			for (size_t inputIndex = 0; inputIndex < INPUTS; ++inputIndex)
 				Z += pixels[inputIndex] * m_hiddenLayerWeights[neuronIndex*INPUTS + inputIndex];
 
 			m_hiddenLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
@@ -258,20 +311,106 @@ private:
 		return maxLabel;
 	}
 
-private:
-	static const size_t c_numNeurons = HIDDEN_NEURONS + OUTPUT_NEURONS;
-	static const size_t c_numWeights = INPUTS * HIDDEN_NEURONS + HIDDEN_NEURONS * OUTPUT_NEURONS;
+	// this function uses the neuron output values from the forward pass to backpropagate the error
+	// of the network to calculate the gradient needed for training.  It figures out what the error
+	// is by comparing the label it came up with to the label it should have come up with (correctLabel).
+	void BackwardPass (const float* pixels, uint8 correctLabel, float& error)
+	{
+		// calculate error.
+		// this is the magnitude of the vector that is Desired - Actual
+		{
+			error = 0.0f;
+			for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
+			{
+				float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
+				float diff = (desiredOutput - m_outputLayerOutputs[neuronIndex]);
+				error += diff * diff;
+			}
+			error = std::sqrt(error);
+		}
+
+		// since we are going backwards, do the output layer first
+		for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
+		{
+			// calculate deltaCost/deltaBias for each output neuron.
+			// This is also the error for the neuron, and is the same value as deltaCost/deltaZ.
+			//
+			// deltaCost/deltaZ = deltaCost/deltaO * deltaO/deltaZ
+			//
+			// deltaCost/deltaO = O - desiredOutput
+			// deltaO/deltaZ = O * (1 - O)
+			//
+			float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
+
+			float deltaCost_deltaO = m_outputLayerOutputs[neuronIndex] - desiredOutput;
+			float deltaO_deltaZ = m_outputLayerOutputs[neuronIndex] * (1.0f - m_outputLayerOutputs[neuronIndex]);
+
+			m_outputLayerBiasesDeltaCost[neuronIndex] = deltaCost_deltaO * deltaO_deltaZ;
+
+			// calculate deltaCost/deltaWeight for each weight going into the neuron
+			//
+			// deltaCost/deltaWeight = deltaCost/deltaZ * deltaCost/deltaWeight
+			// deltaCost/deltaWeight = deltaCost/deltaBias * input
+			//
+			for (size_t inputIndex = 0; inputIndex < HIDDEN_NEURONS; ++inputIndex)
+				m_outputLayerWeightsDeltaCost[neuronIndex*HIDDEN_NEURONS + inputIndex] = m_outputLayerBiasesDeltaCost[neuronIndex] * m_hiddenLayerOutputs[inputIndex];
+		}
+
+		// then do the hidden layer
+		for (size_t neuronIndex = 0; neuronIndex < HIDDEN_NEURONS; ++neuronIndex)
+		{
+			// calculate deltaCost/deltaBias for each hidden neuron.
+			// This is also the error for the neuron, and is the same value as deltaCost/deltaZ.
+			//
+			// deltaCost/deltaZ =
+			//   Sum for each output of this neuron:
+			//     deltaCost/deltaDestinationZ * deltaDestinationZ/deltaSourceO
+			//
+			// deltaCost/deltaDestinationZ is already calculated and lives in m_outputLayerBiasesDeltaCost[destinationNeuronIndex].
+			// deltaTargetZ/deltaSourceO is the value of the weight connecting the source and target neuron.
+			//
+			m_hiddenLayerBiasesDeltaCost[neuronIndex] = 0.0f;
+			for (size_t destinationNeuronIndex = 0; destinationNeuronIndex < OUTPUT_NEURONS; ++destinationNeuronIndex)
+				m_hiddenLayerBiasesDeltaCost[neuronIndex] += m_outputLayerBiasesDeltaCost[destinationNeuronIndex] * m_outputLayerWeights[destinationNeuronIndex*HIDDEN_NEURONS + neuronIndex];
+
+			// calculate deltaCost/deltaWeight for each weight going into the neuron
+			//
+			// deltaCost/deltaWeight = deltaCost/deltaZ * deltaCost/deltaWeight
+			// deltaCost/deltaWeight = deltaCost/deltaBias * input
+			//
+			for (size_t inputIndex = 0; inputIndex < INPUTS; ++inputIndex)
+				m_hiddenLayerWeightsDeltaCost[neuronIndex*HIDDEN_NEURONS + inputIndex] = m_hiddenLayerBiasesDeltaCost[neuronIndex] * pixels[inputIndex];
+		}
+	}
 
 private:
+
+	// biases and weights
 	std::array<float, HIDDEN_NEURONS>					m_hiddenLayerBiases;
 	std::array<float, OUTPUT_NEURONS>					m_outputLayerBiases;
 
 	std::array<float, INPUTS * HIDDEN_NEURONS>			m_hiddenLayerWeights;
 	std::array<float, HIDDEN_NEURONS * OUTPUT_NEURONS>	m_outputLayerWeights;
 
+	// neuron activation values aka "O" values
 	std::array<float, HIDDEN_NEURONS>					m_hiddenLayerOutputs;
 	std::array<float, OUTPUT_NEURONS>					m_outputLayerOutputs;
 
+	// derivatives of biases and weights for a single training example
+	std::array<float, HIDDEN_NEURONS>					m_hiddenLayerBiasesDeltaCost;
+	std::array<float, OUTPUT_NEURONS>					m_outputLayerBiasesDeltaCost;
+
+	std::array<float, INPUTS * HIDDEN_NEURONS>			m_hiddenLayerWeightsDeltaCost;
+	std::array<float, HIDDEN_NEURONS * OUTPUT_NEURONS>	m_outputLayerWeightsDeltaCost;
+
+	// derivatives of biases and weights for the minibatch. Average of all items in minibatch.
+	std::array<float, HIDDEN_NEURONS>					m_miniBatchHiddenLayerBiasesDeltaCost;
+	std::array<float, OUTPUT_NEURONS>					m_miniBatchOutputLayerBiasesDeltaCost;
+
+	std::array<float, INPUTS * HIDDEN_NEURONS>			m_miniBatchHiddenLayerWeightsDeltaCost;
+	std::array<float, HIDDEN_NEURONS * OUTPUT_NEURONS>	m_miniBatchOutputLayerWeightsDeltaCost;
+
+	// used for minibatch generation
 	std::vector<size_t>									m_trainingOrder;
 };
 
@@ -299,8 +438,12 @@ int main (int argc, char** argv)
 	for (size_t epoch = 0; epoch < c_trainingEpochs; ++epoch)
 	{
 		printf("epoch %zu / %zu\n", epoch+1, c_trainingEpochs);
-		neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate);
+		float avgError = 0.0f;
+		neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgError);
+		printf("  avgError = %f\n", avgError);
 	}
+
+	// TODO: check error of test data
 
 
 	// TODO: put this code somewhere and comment it out or something to let people verify that the data is loaded correctly
