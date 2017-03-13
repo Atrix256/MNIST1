@@ -7,18 +7,45 @@
 #include <array>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 
 typedef uint32_t uint32;
 typedef uint16_t uint16;
 typedef uint8_t uint8;
 
+// Set to 1 to have it show error after each training and also writes it to an Error.csv file.
+// Slows down the process a bit (+~50% time on my machine)
+#define REPORT_ERROR_WHILE_TRAINING() 1 
+
 const size_t c_numInputNeurons = 784;
-const size_t c_numHiddenNeurons = 30;
+const size_t c_numHiddenNeurons = 30;  // NOTE: setting this to 100 hidden neurons can give better results, but also can be worse other times.
 const size_t c_numOutputNeurons = 10;
 
-const size_t c_trainingEpochs = 30;  //TODO: 30
+const size_t c_trainingEpochs = 2; // TODO: 30!
 const size_t c_miniBatchSize = 10;
 const float c_learningRate = 3.0f;
+
+// ============================================================================================
+//                                     SBlockTimer
+// ============================================================================================
+// times a block of code
+struct SBlockTimer
+{
+	SBlockTimer (const char* label)
+	{
+		m_start = std::chrono::high_resolution_clock::now();
+		m_label = label;
+	}
+
+	~SBlockTimer ()
+	{
+		std::chrono::duration<float> seconds = std::chrono::high_resolution_clock::now() - m_start;
+		printf("%s%0.2f seconds\n", m_label, seconds.count());
+	}
+
+	std::chrono::high_resolution_clock::time_point m_start;
+	const char* m_label;
+};
 
 // ============================================================================================
 //                                    MNIST DATA LOADER
@@ -175,25 +202,8 @@ public:
 			f = dist(e2);
 	}
 
-	void Train (const CMNISTData& trainingData, size_t miniBatchSize, float learningRate, float& avgError)
+	void Train (const CMNISTData& trainingData, size_t miniBatchSize, float learningRate)
 	{
-		/*
-		// TODO: temp!
-		{
-			float error = 0.0f;
-			float input[2] = { 0.05f, 0.1f };
-			uint8 imageLabel = 0;
-			uint8 labelDetected = ForwardPass(input, imageLabel, error);
-			avgError += error;
-
-			// run the backward pass to get derivatives of the cost function
-			BackwardPass(input, imageLabel);
-
-			int ijkl = 0;
-		}
-		*/
-
-
 		// shuffle the order of the training data for our mini batches
 		if (m_trainingOrder.size() != trainingData.NumImages())
 		{
@@ -208,9 +218,6 @@ public:
 		static std::random_device rd;
 		static std::mt19937 e2(rd());
 		std::shuffle(m_trainingOrder.begin(), m_trainingOrder.end(), e2);
-
-		// initialize average error to 0
-		avgError = 0.0f;
 
 		// process all minibatches until we are out of training examples
 		size_t trainingIndex = 0;
@@ -231,9 +238,7 @@ public:
 				const float* pixels = trainingData.GetImage(m_trainingOrder[trainingIndex], imageLabel);
 
 				// run the forward pass of the network
-				float error = 0.0f;
-				uint8 labelDetected = ForwardPass(pixels, imageLabel, error);
-				avgError += error;
+				uint8 labelDetected = ForwardPass(pixels, imageLabel);
 
 				// run the backward pass to get derivatives of the cost function
 				BackwardPass(pixels, imageLabel);
@@ -254,7 +259,8 @@ public:
 			}
 
 			// divide minibatch derivatives by how many items were in the minibatch, to get the average of the derivatives.
-			// instead of the commented code below, we'll do it implicitly by dividing the learning rate by miniBatchIndex.
+			// NOTE: instead of doing this explicitly like in the commented code below, we'll do it implicitly
+			// by dividing the learning rate by miniBatchIndex.
 			/*
 			for (float& f : m_miniBatchHiddenLayerBiasesDeltaCost)
 				f /= float(miniBatchIndex);
@@ -266,9 +272,9 @@ public:
 				f /= float(miniBatchIndex);
 			*/
 
-			// apply training to biases and weights
 			float miniBatchLearningRate = learningRate / float(miniBatchIndex);
 
+			// apply training to biases and weights
 			for (size_t i = 0; i < m_hiddenLayerBiases.size(); ++i)
 				m_hiddenLayerBiases[i] -= m_miniBatchHiddenLayerBiasesDeltaCost[i] * miniBatchLearningRate;
 			for (size_t i = 0; i < m_outputLayerBiases.size(); ++i)
@@ -278,12 +284,10 @@ public:
 			for (size_t i = 0; i < m_outputLayerWeights.size(); ++i)
 				m_outputLayerWeights[i] -= m_miniBatchOutputLayerWeightsDeltaCost[i] * miniBatchLearningRate;
 		}
-
-		avgError /= float(trainingData.NumImages());
 	}
 
 	// This function evaluates the network for the given input pixels and returns the label it thinks it is from 0-9
-	uint8 ForwardPass (const float* pixels, uint8 correctLabel, float& error)
+	uint8 ForwardPass (const float* pixels, uint8 correctLabel)
 	{
 		// first do hidden layer
 		for (size_t neuronIndex = 0; neuronIndex < HIDDEN_NEURONS; ++neuronIndex)
@@ -294,9 +298,6 @@ public:
 				Z += pixels[inputIndex] * m_hiddenLayerWeights[HiddenLayerWeightIndex(inputIndex, neuronIndex)];
 
 			m_hiddenLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
-
-			// TODO: temp
-			int ijkl = 0;
 		}
 
 		// then do output layer
@@ -308,25 +309,23 @@ public:
 				Z += m_hiddenLayerOutputs[inputIndex] * m_outputLayerWeights[OutputLayerWeightIndex(inputIndex, neuronIndex)];
 
 			m_outputLayerOutputs[neuronIndex] = 1.0f / (1.0f + std::exp(-Z));
-
-			// TODO: temp
-			int ijkl = 0;
 		}
 
 		// calculate error.
-		// this is the magnitude of the vector that is Desired - Actual
+		// this is the magnitude of the vector that is Desired - Actual.
+		// Commenting out because it's not needed.
+		/*
 		{
 			error = 0.0f;
 			for (size_t neuronIndex = 0; neuronIndex < OUTPUT_NEURONS; ++neuronIndex)
 			{
-				// TODO: temp!
 				float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
-				//float desiredOutput = (neuronIndex == 0) ? 0.01f : 0.99f;
 				float diff = (desiredOutput - m_outputLayerOutputs[neuronIndex]);
 				error += diff * diff;
 			}
 			error = std::sqrt(error);
 		}
+		*/
 
 		// find the maximum value of the output layer and return that index as the label
 		float maxOutput = m_outputLayerOutputs[0];
@@ -342,8 +341,13 @@ public:
 		return maxLabel;
 	}
 
-// TODO: temp!
-//private:
+	// Functions to get weights/bias values. Used to make the JSON file.
+	const std::array<float, HIDDEN_NEURONS>& GetHiddenLayerBiases () const { return m_hiddenLayerBiases; }
+	const std::array<float, OUTPUT_NEURONS>& GetOutputLayerBiases () const { return m_outputLayerBiases; }
+	const std::array<float, INPUTS * HIDDEN_NEURONS>& GetHiddenLayerWeights () const { return m_hiddenLayerWeights; }
+	const std::array<float, HIDDEN_NEURONS * OUTPUT_NEURONS>& GetOutputLayerWeights () const { return m_outputLayerWeights; }
+
+private:
 
 	static size_t HiddenLayerWeightIndex (size_t inputIndex, size_t hiddenLayerNeuronIndex)
 	{
@@ -371,9 +375,7 @@ public:
 			// deltaCost/deltaO = O - desiredOutput
 			// deltaO/deltaZ = O * (1 - O)
 			//
-			// TODO: temp!
 			float desiredOutput = (correctLabel == neuronIndex) ? 1.0f : 0.0f;
-			//float desiredOutput = (neuronIndex == 0) ? 0.01f : 0.99f;
 
 			float deltaCost_deltaO = m_outputLayerOutputs[neuronIndex] - desiredOutput;
 			float deltaO_deltaZ = m_outputLayerOutputs[neuronIndex] * (1.0f - m_outputLayerOutputs[neuronIndex]);
@@ -421,8 +423,7 @@ public:
 		}
 	}
 
-// TODO: temp!
-//private:
+private:
 
 	// biases and weights
 	std::array<float, HIDDEN_NEURONS>					m_hiddenLayerBiases;
@@ -471,8 +472,7 @@ float GetDataAccuracy (const CMNISTData& data)
 	{
 		uint8 label;
 		const float* pixels = data.GetImage(i, label);
-		float error = 0.0f;
-		uint8 detectedLabel = g_neuralNetwork.ForwardPass(pixels, label, error);
+		uint8 detectedLabel = g_neuralNetwork.ForwardPass(pixels, label);
 
 		if (detectedLabel == label)
 			++correctItems;
@@ -480,57 +480,10 @@ float GetDataAccuracy (const CMNISTData& data)
 	return float(correctItems) / float(data.NumImages());
 }
 
-int main (int argc, char** argv)
+void ShowImage (const CMNISTData& data, size_t imageIndex)
 {
-	/*
-	// TODO: temp!
-	CNeuralNetwork<2, 2, 2> nn;
-	nn.m_hiddenLayerWeights[0] = 0.15f;
-	nn.m_hiddenLayerWeights[1] = 0.2f;
-	nn.m_hiddenLayerWeights[2] = 0.25f;
-	nn.m_hiddenLayerWeights[3] = 0.3f;
-
-	nn.m_hiddenLayerBiases[0] = 0.35f;
-	nn.m_hiddenLayerBiases[1] = 0.35f;
-
-	nn.m_outputLayerWeights[0] = 0.4f;
-	nn.m_outputLayerWeights[1] = 0.45f;
-	nn.m_outputLayerWeights[2] = 0.5f;
-	nn.m_outputLayerWeights[3] = 0.55f;
-	
-	nn.m_outputLayerBiases[0] = 0.6f;
-	nn.m_outputLayerBiases[1] = 0.6f;
-
-	float avgErrorZ = 0.0f;
-	nn.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgErrorZ);
-	*/
-
-
-
-	// load the MNIST data if we can
-	if (!g_trainingData.Load(true) || !g_testData.Load(false))
-	{
-		printf("Could not load mnist data, aborting!\n");
-		return 1;
-	}
-
-	// train the network
-	for (size_t epoch = 0; epoch < c_trainingEpochs; ++epoch)
-	{
-		printf("epoch %zu / %zu\n", epoch+1, c_trainingEpochs);
-		float avgError = 0.0f;
-		printf("  Training Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_trainingData));
-		printf("  Test Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_testData));
-		g_neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate, avgError);
-	}
-	printf("\nFinal Training Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_trainingData));
-	printf("Final Test Data Accuracy: %0.2f%%\n", 100.0f*GetDataAccuracy(g_testData));
-
-	// TODO: check error of test data
-
-	// TODO: put this code somewhere and comment it out or something to let people verify that the data is loaded correctly
-	uint8 label;
-	const float* pixels = g_trainingData.GetImage(2, label);
+	uint8 label = 0;
+	const float* pixels = data.GetImage(imageIndex, label);
 	printf("showing a %i\n", label);
 	for (int iy = 0; iy < 28; ++iy)
 	{
@@ -544,6 +497,120 @@ int main (int argc, char** argv)
 		}
 		printf("\n");
 	}
+}
+
+int main (int argc, char** argv)
+{
+	// load the MNIST data if we can
+	if (!g_trainingData.Load(true) || !g_testData.Load(false))
+	{
+		printf("Could not load mnist data, aborting!\n");
+		system("pause");
+		return 1;
+	}
+
+	#if REPORT_ERROR_WHILE_TRAINING()
+	FILE *file = fopen("Error.csv","w+t");
+	if (!file)
+	{
+		printf("Could not open Error.csv for writing, aborting!\n");
+		system("pause");
+		return 2;
+	}
+	fprintf(file, "\"Training Data Error\",\"Testing Data Error\"\n");
+	#endif
+
+	{
+		SBlockTimer timer("Training Time:  ");
+
+		// train the network, reporting error before each training
+		for (size_t epoch = 0; epoch < c_trainingEpochs; ++epoch)
+		{
+			#if REPORT_ERROR_WHILE_TRAINING()
+				float accuracyTraining = GetDataAccuracy(g_trainingData);
+				float accuracyTest = GetDataAccuracy(g_testData);
+				printf("Training Data Accuracy: %0.2f%%\n", 100.0f*accuracyTraining);
+				printf("Test Data Accuracy: %0.2f%%\n\n", 100.0f*accuracyTest);
+				fprintf(file, "\"%f\",\"%f\"\n", accuracyTraining, accuracyTest);
+			#endif
+
+			printf("Training epoch %zu / %zu...\n", epoch+1, c_trainingEpochs);
+			g_neuralNetwork.Train(g_trainingData, c_miniBatchSize, c_learningRate);
+			printf("\n");
+		}
+	}
+
+	// report final error
+	float accuracyTraining = GetDataAccuracy(g_trainingData);
+	float accuracyTest = GetDataAccuracy(g_testData);
+	printf("\nFinal Training Data Accuracy: %0.2f%%\n", 100.0f*accuracyTraining);
+	printf("Final Test Data Accuracy: %0.2f%%\n\n", 100.0f*accuracyTest);
+
+	#if REPORT_ERROR_WHILE_TRAINING()
+		fprintf(file, "\"%f\",\"%f\"\n", accuracyTraining, accuracyTest);
+		fclose(file);
+	#endif
+
+	// Write out the final weights and biases as JSON for use in the web demo
+	{
+		FILE* file = fopen("WeightsBiasesJSON.txt", "w+t");
+		fprintf(file, "{\n");
+
+		// HiddenBiases
+		auto hiddenBiases = g_neuralNetwork.GetHiddenLayerBiases();
+		fprintf(file, "  \"HiddenBiases\" : [\n");
+		for (size_t i = 0; i < hiddenBiases.size(); ++i)
+		{
+			fprintf(file, "    %f", hiddenBiases[i]);
+			if (i < hiddenBiases.size() -1)
+				fprintf(file, ",");
+			fprintf(file, "\n");
+		}
+		fprintf(file, "  ],\n");
+
+		// HiddenWeights
+		auto hiddenWeights = g_neuralNetwork.GetHiddenLayerWeights();
+		fprintf(file, "  \"HiddenWeights\" : [\n");
+		for (size_t i = 0; i < hiddenWeights.size(); ++i)
+		{
+			fprintf(file, "    %f", hiddenWeights[i]);
+			if (i < hiddenWeights.size() - 1)
+				fprintf(file, ",");
+			fprintf(file, "\n");
+		}
+		fprintf(file, "  ],\n");
+
+		// OutputBiases
+		auto outputBiases = g_neuralNetwork.GetOutputLayerBiases();
+		fprintf(file, "  \"OutputBiases\" : [\n");
+		for (size_t i = 0; i < outputBiases.size(); ++i)
+		{
+			fprintf(file, "    %f", outputBiases[i]);
+			if (i < outputBiases.size() - 1)
+				fprintf(file, ",");
+			fprintf(file, "\n");
+		}
+		fprintf(file, "  ],\n");
+
+		// OutputWeights
+		auto outputWeights = g_neuralNetwork.GetOutputLayerWeights();
+		fprintf(file, "  \"OutputWeights\" : [\n");
+		for (size_t i = 0; i < outputWeights.size(); ++i)
+		{
+			fprintf(file, "    %f", outputWeights[i]);
+			if (i < outputWeights.size() - 1)
+				fprintf(file, ",");
+			fprintf(file, "\n");
+		}
+		fprintf(file, "  ]\n");
+
+		// done
+		fprintf(file, "}\n");
+		fclose(file);
+	}
+
+	// You can use the code like the below to visualize an image if you want to.
+	//ShowImage(g_testData, 0);
 
 	system("pause");
 	return 0;
@@ -555,24 +622,18 @@ TODO:
 ? should we figure out a way to let people give their own input to test network?
  * maybe make an html5 web app to draw numbers and let it guess what it is?
  * should sample the bounding box of the number
-* forward pass may not need to calculate error, check into it.
- * same with Train()!
-? should we calculate derivatives of input and make static that looks like a number or make a number that doesn't look like one to the machine?
-* profile and optimize a little.
-* show how long it took to run the process.
-* show error rate at end. maybe an option to show it for each epoch?
-* CSV of error at end of each epoch to show learning rate. Maybe also show error of training data?
-* write out json file of weights/biases for use by html demo!
 
 Blog Notes:
 * porting network.py from this page: http://neuralnetworksanddeeplearning.com/chap1.html
-* describe the features of the network
-* explain any new ideas that aren't covered in last blog post.
+* describe the features of the network. # neurons / layers. activation function. learning rate, etc
 * put code and link to data, but also link to github repo
 * not multithreaded / SIMD etc.  meant to be readable and usable for experimentation.
 * link to this in recipe: http://image-net.org/challenges/posters/JKU_EN_RGB_Schwarz_poster.pdf
  * exponential linear unit.
 * put mnist.zip file up on blog and link to it
+* mention again that you could calculate derivatives of input to adjust input to give desired output
+ * might be fun to start with a 5 and adjust it until it looked like a zero to the network.
+* show graph of error over time!
 
 Network Description:
 * neuron layers: [784, 30, 10]
@@ -587,5 +648,6 @@ NEXT PROJECTS:
 * port network2.py and make a blog post. from http://neuralnetworksanddeeplearning.com/chap3.html
 * do convolutional version
 * do a recurrent neural network thing
+? maybe go straight to recurrent networks, try to learn them a bit better since running low on time?
 
 */
