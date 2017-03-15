@@ -21,7 +21,7 @@ const size_t c_numInputNeurons = 784;
 const size_t c_numHiddenNeurons = 30;  // NOTE: setting this to 100 hidden neurons can give better results, but also can be worse other times.
 const size_t c_numOutputNeurons = 10;
 
-const size_t c_trainingEpochs = 2; // TODO: 30!
+const size_t c_trainingEpochs = 30;
 const size_t c_miniBatchSize = 10;
 const float c_learningRate = 3.0f;
 
@@ -517,7 +517,7 @@ int main (int argc, char** argv)
 		system("pause");
 		return 2;
 	}
-	fprintf(file, "\"Training Data Error\",\"Testing Data Error\"\n");
+	fprintf(file, "\"Training Data Accuracy\",\"Testing Data Accuracy\"\n");
 	#endif
 
 	{
@@ -555,6 +555,11 @@ int main (int argc, char** argv)
 	{
 		FILE* file = fopen("WeightsBiasesJSON.txt", "w+t");
 		fprintf(file, "{\n");
+
+		// network structure
+		fprintf(file, "  \"InputNeurons\":%zu,\n", c_numInputNeurons);
+		fprintf(file, "  \"HiddenNeurons\":%zu,\n", c_numHiddenNeurons);
+		fprintf(file, "  \"OutputNeurons\":%zu,\n", c_numOutputNeurons);
 
 		// HiddenBiases
 		auto hiddenBiases = g_neuralNetwork.GetHiddenLayerBiases();
@@ -619,6 +624,15 @@ int main (int argc, char** argv)
 /*
 
 TODO:
+
+<hr>
+<pre>
+TODO:
+* link to blog post
+? should we calculate derivatives of input in source code, so people can use them?
+* upload index and this file to demofox.org
+</pre>
+
 ? should we figure out a way to let people give their own input to test network?
  * maybe make an html5 web app to draw numbers and let it guess what it is?
  * should sample the bounding box of the number
